@@ -1,56 +1,68 @@
 ---
-- name: add virtualbox apt key
+- name: add VirtualBox apt key
   sudo: yes
-  action: apt_key url=http://download.virtualbox.org/virtualbox/debian/oracle_vbox.asc state=present
-  tags: virtualbox
+  apt_key:
+    url: "{{ virtualbox_download_url }}/debian/oracle_vbox.asc"
+    state: present
 
-- name: add virtualbox repository
+- name: add Virtualbox repository
   sudo: yes
-  action: apt_repository repo="deb http://download.virtualbox.org/virtualbox/debian {{ansible_lsb.codename}} contrib" state=present update_cache=yes
-  when: "ansible_distribution_version not in ['14.04']"
-  tags: virtualbox
+  apt_repository:
+    repo: "deb {{ virtualbox_download_url }}/debian {{ ansible_lsb.codename }} contrib"
+    state: present
+    update_cache: true
 
-- name: add virtualbox repository
+- name: ensure distribution-packaged VirtualBox is not installed
   sudo: yes
-  action: apt_repository repo="deb http://download.virtualbox.org/virtualbox/debian trusty contrib" state=present update_cache=yes
-  when: "ansible_distribution_version in ['14.04']"
-  tags: virtualbox
-
-- name: install virtualbox
-  sudo: yes
-  action: apt pkg="{{item}}" state=present update_cache=yes
+  apt: 
+    pkg: "{{ item }}"
+    state: absent
   with_items:
-      - "{{virtualbox_package_name}}"
-  tags: virtualbox
+    - virtualbox
+    - virtualbox-dkms
+    - virtualbox-qt
 
-- name: install additional virtualbox dkms package
+- name: update to latest Oracle-packaged VirtualBox 
   sudo: yes
-  action: apt pkg="{{item}}" state=present update_cache=yes
+  apt: 
+    pkg: "{{item}}" 
+    state: latest 
   with_items:
-      - "{{virtualbox_dkms_package_name}}"
+    - "{{ virtualbox_package_name }}"
+
+- name: install additional VirtualBox dkms package
+  sudo: yes
+  apt:
+    pkg: "{{virtualbox_dkms_package_name}}"
+    state: present 
   when: virtualbox_dkms_enable
-  tags: virtualbox
 
-- name: create temporary directory
+- name: register current VirtualBox version
+  shell: VBoxManage --version | cut --delimiter=r --field=1
+  register: virtualbox_version
+  changed_when: false
+  when: virtualbox_extension_enable
+
+- name: register current VirtualBox build number
+  shell: VBoxManage --version | cut --delimiter=r --field=2
+  register: virtualbox_buildnumber
+  changed_when: false
+  when: virtualbox_extension_enable
+
+- set_fact: 
+    virtualbox_extension_package_name: "Oracle_VM_VirtualBox_Extension_Pack-{{ virtualbox_version.stdout }}-{{ virtualbox_buildnumber.stdout }}.vbox-extpack"
+  when: virtualbox_extension_enable
+
+- set_fact:
+    virtualbox_extension_package_url : "{{ virtualbox_download_url }}/{{ virtualbox_version.stdout }}/{{ virtualbox_extension_package_name }}"
+  when: virtualbox_extension_enable
+
+- name: download VirtualBox extension pack
+  get_url: url={{ virtualbox_extension_package_url }} dest=/tmp/{{ virtualbox_extension_package_name }} 
+  when: virtualbox_extension_enable
+
+  # TODO this always reports as `changed`
+- name: install VirtualBox extension pack
   sudo: yes
-  shell: mktemp -d
-  register: tempdir
+  command: VBoxManage extpack install --replace /tmp/{{ virtualbox_extension_package_name }}
   when: virtualbox_extension_enable
-  tags: virtualbox_extension
-
-- name: download extension
-  get_url: url={{ virtualbox_extension_package_url }} dest={{ virtualbox_dir_tmp }}/{{ virtualbox_extension_package_name }} force=yes
-  when: virtualbox_extension_enable
-  tags: virtualbox_extension
-
-- name: install extension
-  sudo: yes
-  ignore_errors: true
-  command: VBoxManage extpack install {{ virtualbox_dir_tmp }}/{{ virtualbox_extension_package_name }}
-  when: virtualbox_extension_enable
-  tags: virtualbox_extension
-
-- name: cleanup temporary directory
-  file: name={{ tempdir.stdout }} state=absent
-  when: virtualbox_extension_enable
-  tags: virtualbox_extension

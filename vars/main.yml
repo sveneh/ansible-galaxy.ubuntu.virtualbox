@@ -1,0 +1,4 @@
+---
+virtualbox_package_name: "virtualbox-{{ virtualbox_version }}"
+virtualbox_dkms_package_name: dkms
+virtualbox_download_url: "http://download.virtualbox.org/virtualbox"
